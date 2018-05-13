@@ -64,7 +64,7 @@ PiecewisePolynomial<double> MinimumSnap(const Eigen::VectorXd &breaks, const Eig
         }
         poly_phi(i - k_phi, 0) = (double)term;
     }
-    MatrixXd Q(4 * (order + 1) * breaks.size(), 4 * (order + 1) * breaks.size());
+    MatrixXd Q(4 * (order + 1) * (breaks.size() - 1), 4 * (order + 1) * (breaks.size() - 1));
     for (int i = 0; i < breaks.size() - 1; i++)
     {
         MatrixXd Q_r = MatrixXd::Zero(order + 1, order + 1);
