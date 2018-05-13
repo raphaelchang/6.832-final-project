@@ -30,6 +30,19 @@ cc_library(
     ],
 )
 
+cc_library(
+    name = "trajectory_controller",
+    srcs = ["trajectory_controller.cc"],
+    hdrs = ["trajectory_controller.h"],
+    deps = [
+        ":quadrotor_plant",
+        "@drake//common:default_scalars",
+        "@drake//math:geometric_transform",
+        "@drake//systems/framework:leaf_system",
+        "@drake//util",
+    ],
+)
+
 cc_binary(
     name = "run_quadrotor_dynamics",
     srcs = ["run_quadrotor_dynamics.cc"],
@@ -66,6 +79,7 @@ cc_binary(
     #],
     deps = [
         ":quadrotor_plant",
+        ":trajectory_controller",
         "@drake//common:find_resource",
         "@drake//common:is_approx_equal_abstol",
         "@drake//lcm",
@@ -76,6 +90,7 @@ cc_binary(
         "@drake//multibody/rigid_body_plant:drake_visualizer",
         "@drake//systems/analysis:simulator",
         "@drake//systems/framework:diagram",
+        "@drake//systems/primitives:trajectory_source",
         "@gflags",
     ],
 )

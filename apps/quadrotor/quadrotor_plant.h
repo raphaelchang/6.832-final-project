@@ -38,6 +38,9 @@ class QuadrotorPlant final : public systems::LeafSystem<T> {
 
   double m() const { return m_; }
   double g() const { return g_; }
+  double kF() const { return kF_; }
+  double kM() const { return kM_; }
+  double L() const { return L_; }
 
  protected:
   void CopyStateOut(const systems::Context<T>& context,

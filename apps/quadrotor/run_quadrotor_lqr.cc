@@ -19,6 +19,9 @@
 #include "drake/systems/analysis/simulator.h"
 #include "drake/systems/framework/diagram.h"
 #include "drake/systems/framework/diagram_builder.h"
+#include "drake/systems/primitives/trajectory_source.h"
+#include "drake/common/trajectories/piecewise_polynomial.h"
+#include "trajectory_controller.h"
 
 DEFINE_int32(simulation_trials, 10, "Number of trials to simulate.");
 DEFINE_double(simulation_real_time_rate, 1.0, "Real time rate");
@@ -30,6 +33,8 @@ using systems::Simulator;
 using systems::Context;
 using systems::ContinuousState;
 using systems::VectorBase;
+using systems::TrajectorySource;
+using namespace trajectories;
 
 namespace examples {
 namespace quadrotor {
@@ -51,50 +56,38 @@ int do_main() {
 
   auto quadrotor = builder.AddSystem<QuadrotorPlant<double>>();
   quadrotor->set_name("quadrotor");
-  auto controller = builder.AddSystem(StabilizingLQRController(
-      quadrotor, kNominalPosition));
+  auto controller = builder.AddSystem(std::make_unique<TrajectoryController<double>>(*quadrotor, 1.0, 2.0, 1.0, 0.8));
   controller->set_name("controller");
   auto visualizer =
       builder.AddSystem<drake::systems::DrakeVisualizer>(*tree, &lcm);
   visualizer->set_name("visualizer");
+  Vector2d breaks;
+  breaks << 0.0, 10.0;
+  MatrixXd knots(4, 2);
+  knots << 1, 1, 3, 3, 1.0, 1.0, 0.5, 0.5;
+  const PiecewisePolynomial<double> traj = PiecewisePolynomial<double>::ZeroOrderHold(breaks, knots);
+  auto trajectory = builder.AddSystem<systems::TrajectorySource>(traj);
+  trajectory->set_name("trajectory");
 
-  builder.Connect(quadrotor->get_output_port(0), controller->get_input_port());
-  builder.Connect(controller->get_output_port(), quadrotor->get_input_port(0));
+  builder.Connect(trajectory->get_output_port(), controller->get_input_port(1));
+  builder.Connect(quadrotor->get_output_port(0), controller->get_input_port(0));
+  builder.Connect(controller->get_output_port(0), quadrotor->get_input_port(0));
   builder.Connect(quadrotor->get_output_port(0), visualizer->get_input_port(0));
 
   auto diagram = builder.Build();
   Simulator<double> simulator(*diagram);
   VectorX<double> x0 = VectorX<double>::Zero(12);
 
-  const VectorX<double> kNominalState{((Eigen::VectorXd(12) << kNominalPosition,
-  Eigen::VectorXd::Zero(9)).finished())};
+  //x0 = VectorX<double>::Random(12);
 
-  srand(42);
+  simulator.get_mutable_context()
+      .get_mutable_continuous_state_vector()
+      .SetFromVector(x0);
 
-  for (int i = 0; i < FLAGS_simulation_trials; i++) {
-    auto diagram_context = diagram->CreateDefaultContext();
-    x0 = VectorX<double>::Random(12);
+  simulator.Initialize();
+  simulator.set_target_realtime_rate(FLAGS_simulation_real_time_rate);
+  simulator.StepTo(traj.end_time());
 
-    simulator.get_mutable_context()
-        .get_mutable_continuous_state_vector()
-        .SetFromVector(x0);
-
-    simulator.Initialize();
-    simulator.set_target_realtime_rate(FLAGS_simulation_real_time_rate);
-    simulator.StepTo(FLAGS_trial_duration);
-
-    // Goal state verification.
-    const Context<double>& context = simulator.get_context();
-    const ContinuousState<double>& state = context.get_continuous_state();
-    const VectorX<double>& position_vector = state.CopyToVector();
-
-    if (!is_approx_equal_abstol(
-        position_vector, kNominalState, 1e-4)) {
-      throw std::runtime_error("Target state is not achieved.");
-    }
-
-    simulator.reset_context(std::move(diagram_context));
-  }
   return 0;
 }
 
