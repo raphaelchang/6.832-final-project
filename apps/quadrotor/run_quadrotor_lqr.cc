@@ -44,8 +44,8 @@ PiecewisePolynomial<double> MinimumSnap(const Eigen::VectorXd &breaks, const Eig
 {
     double mu_r = 1.0;
     double mu_phi = 1.0;
-    MatrixXd poly_r = MatrixXd::Ones(order + 1, 1);
-    MatrixXd poly_phi = MatrixXd::Ones(order + 1, 1);
+    MatrixXd poly_r = MatrixXd::Zero(order + 1, 1);
+    MatrixXd poly_phi = MatrixXd::Zero(order + 1, 1);
     for (int i = k_r; i <= order; i++)
     {
         int term = 1;
@@ -53,7 +53,7 @@ PiecewisePolynomial<double> MinimumSnap(const Eigen::VectorXd &breaks, const Eig
         {
             term = term * (i - j);
         }
-        poly_r(i - k_r, 0) = (double)term;
+        poly_r(order - i, 0) = (double)term;
     }
     for (int i = k_phi; i <= order; i++)
     {
@@ -62,7 +62,7 @@ PiecewisePolynomial<double> MinimumSnap(const Eigen::VectorXd &breaks, const Eig
         {
             term = term * (i - j);
         }
-        poly_phi(i - k_phi, 0) = (double)term;
+        poly_phi(order - i, 0) = (double)term;
     }
     MatrixXd Q(4 * (order + 1) * (breaks.size() - 1), 4 * (order + 1) * (breaks.size() - 1));
     for (int i = 0; i < breaks.size() - 1; i++)
@@ -105,7 +105,107 @@ PiecewisePolynomial<double> MinimumSnap(const Eigen::VectorXd &breaks, const Eig
         Q.block(i * 4 * (order + 1) + 3 * (order + 1), i * 3 * (order + 1) + 2 * (order + 1), order + 1, order + 1) = mu_phi * Q_phi;
     }
     std::cout << Q << std::endl;
-    return PiecewisePolynomial<double>::Cubic(breaks, knots);
+    MatrixXd C1 = MatrixXd::Zero((knots.cols() * 2 - 2) * 4, 4 * (order + 1) * (breaks.size() - 1));
+    VectorXd b1 = VectorXd::Zero((knots.cols() * 2 - 2) * 4);
+    for (int i = 0; i < knots.cols() - 1; i++)
+    {
+        RowVectorXd time_values(order + 1);
+        for (int j = 0; j <= order; j++)
+        {
+            time_values(order - j) = std::pow(breaks(i), j);
+        }
+        for (int j = 0; j < 4; j++)
+        {
+            RowVectorXd c = RowVectorXd::Zero(4 * (order + 1) * (breaks.size() - 1));
+            c.segment(i * (order + 1) * 4  + j * (order + 1), order + 1) = time_values;
+            C1.row(8 * i + j) = c;
+        }
+        b1.segment(8 * i, 4) = knots.col(i);
+        for (int j = 0; j <= order; j++)
+        {
+            time_values(order - j) = std::pow(breaks(i + 1), j);
+        }
+        for (int j = 0; j < 4; j++)
+        {
+            RowVectorXd c = RowVectorXd::Zero(4 * (order + 1) * (breaks.size() - 1));
+            c.segment(i * (order + 1) * 4  + j * (order + 1), order + 1) = time_values;
+            C1.row(8 * i + 4 + j) = c;
+        }
+        b1.segment(8 * i + 4, 4) = knots.col(i + 1);
+    }
+    MatrixXd C2 = MatrixXd::Zero(Dynamic, 4 * (order + 1) * (breaks.size() - 1));
+    VectorXd b2 = VectorXd::Zero(Dynamic);
+    MatrixXf continuous = MatrixXf::Zero(breaks.size(), k_r);
+    continuous.block(1, 0, breaks.size() - 2, k_r) = 1;
+    for (int i = 0; i < knots.cols(); i++)
+    {
+        for (int j = 0; j < k_r; j++)
+        {
+            RowVectorXd time_values(order + 1) = RowVectorXd::Zero(order + 1);
+            RowVectorXd polyder = RowVectorXd::Zero(order + 1);
+            for (int k = k_r; k <= order; k++)
+            {
+                int term = 1;
+                for (int l = 0; l <= j; l++)
+                {
+                    term = term * (k - l);
+                }
+                time_values(order - k) = std::pow(breaks(i), k - k_r) * (double)term;
+            }
+            for (int k = 0; k < 3; k++)
+            {
+                if (continuous(i, j) == 1)
+                {
+                    RowVectorXd c = RowVectorXd::Zero(4 * (order + 1) * (breaks.size() - 1));
+                    c.segment(i * (order + 1) * 4  + k * (order + 1), order + 1) = time_values;
+                    c.segment((i - 1) * (order + 1) * 4  + k * (order + 1), order + 1) = -1 * time_values;
+                    C2 << c;
+                    b2 << 0;
+                }
+                else
+                {
+                    if (i != breaks.size() - 1)
+                    {
+                        RowVectorXd c = RowVectorXd::Zero(4 * (order + 1) * (breaks.size() - 1));
+                        c.segment(i * (order + 1) * 4  + k * (order + 1), order + 1) = time_values;
+                        C2 << c;
+                        b2 << 0;
+                    }
+                    if (i != 0)
+                    {
+                        RowVectorXd c = RowVectorXd::Zero(4 * (order + 1) * (breaks.size() - 1));
+                        c.segment((i - 1) * (order + 1) * 4  + k * (order + 1), order + 1) = time_values;
+                        C2 << c;
+                        b2 << 0;
+                    }
+                }
+            }
+        }
+    }
+    MatrixXd C(Dynamic, 4 * (order + 1) * (breaks.size() - 1));
+    VectorXd b(Dynamic);
+    C << C1, C2;
+    b << b1, b2;
+    MathematicalProgram prog;
+    auto x = prog.NewContinuousVariables(4 * (order + 1) * (breaks.size() - 1), "x");
+    prog.AddQuadraticCost(Q, VectorXd::Zero(4 * (order + 1) * (breaks.size() - 1)), x);
+    prog.AddLinearEqualityConstraint(C, b, x);
+    prog.Solve();
+    VectorXd x_sol = prog.GetSolution(x);
+    std::vector<PolynomialMatrix> polynomials(breaks.size() - 1);
+    for (int i = 0; i < breaks.size() - 1; i++)
+    {
+        polynomials[i].resize(4, 1);
+    }
+    for (int i = 0; i < breaks.size() - 1; i++)
+    {
+        for (int j = 0; j < 4; j++)
+        {
+            Polynomial<double> poly = Polynomial<double>(x_sol.segment(i * (order + 1) * 4 + j * (order + 1), order + 1).reverse());
+            polynomials[i](j, 0) = poly:
+        }
+    }
+    return PiecewisePolynomial<double>(polynomials, breaks);
 }
 
 int do_main() {
